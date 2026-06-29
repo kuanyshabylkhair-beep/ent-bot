@@ -5,7 +5,7 @@ import asyncio
 from pathlib import Path
 from datetime import time as dtime, datetime, timedelta
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import pytz
 
@@ -240,7 +240,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"/stats — моя статистика\n"
         f"/stop — остановить рассылку\n\n"
         f"Поехали! 🚀",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=main_menu()
     )
     await send_question(context.bot, uid)
 
@@ -462,6 +463,25 @@ async def broadcast(context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════
+
+async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    uid = update.effective_user.id
+    if text == "❓ Получить вопрос":
+        await send_question(context.bot, uid)
+    elif text == "⭐️ Премиум":
+        await show_premium_menu(update.message.reply_text)
+    elif text == "📊 Моя статистика":
+        users = load_users()
+        user = get_user(users, uid)
+        await update.message.reply_text(get_stats_text(user), parse_mode="Markdown")
+    elif text == "⏹ Остановить":
+        users = load_users()
+        u = get_user(users, uid)
+        u["active"] = False
+        save_users(users)
+        await update.message.reply_text("⏹ Рассылка остановлена. Нажми /start чтобы возобновить.")
+
 def main():
     app = Application.builder().token(TOKEN).build()
 
@@ -472,6 +492,7 @@ def main():
     app.add_handler(CommandHandler("premium", premium_cmd))
     app.add_handler(CommandHandler("activate", activate_cmd))
     app.add_handler(CommandHandler("users", users_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
     app.add_handler(CallbackQueryHandler(button_callback))
 
     app.job_queue.run_daily(broadcast, time=dtime(8, 0, tzinfo=ALMATY_TZ))
@@ -483,3 +504,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ══════════════════════════════════════════════
+# ГЛАВНОЕ МЕНЮ
+# ══════════════════════════════════════════════
+def main_menu():
+    keyboard = [
+        [KeyboardButton("❓ Получить вопрос"), KeyboardButton("⭐️ Премиум")],
+        [KeyboardButton("📊 Моя статистика"), KeyboardButton("⏹ Остановить")],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
