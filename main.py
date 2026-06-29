@@ -12,13 +12,8 @@ import pytz
 TOKEN = "8922456276:AAHX1nCkvDEv6K7jeo5OJezrwdGSh_qt-Ao"
 ALMATY_TZ = pytz.timezone("Asia/Almaty")
 DATA_FILE = Path("users.json")
-
-# ⚠️ ЗАМЕНИ НА СВОЙ Telegram ID (узнать: написать @userinfobot)
 ADMIN_ID = 1001451035
-
-# Твой номер Kaspi для переводов
-KASPI_NUMBER = "+7 747 546 3669"  # ← замени на свой номер
-
+KASPI_NUMBER = "+7 747 546 3669"
 PRICE_STANDARD = 2990
 PRICE_FAMILY = 4990
 
@@ -85,8 +80,17 @@ QUESTIONS = {
 }
 
 SUBJECTS = list(QUESTIONS.keys())
-FREE_QUESTIONS_PER_DAY = 1
 FREE_SUBJECTS = ["История Казахстана"]
+
+# ══════════════════════════════════════════════
+# МЕНЮ
+# ══════════════════════════════════════════════
+def main_menu():
+    keyboard = [
+        [KeyboardButton("❓ Получить вопрос"), KeyboardButton("⭐️ Премиум")],
+        [KeyboardButton("📊 Статистика"),       KeyboardButton("ℹ️ Помощь")],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
 
 # ══════════════════════════════════════════════
 # ДАННЫЕ
@@ -108,12 +112,12 @@ def get_user(users, uid):
             "name": "",
             "stats": {s: {"correct": 0, "total": 0} for s in SUBJECTS},
             "asked": {s: [] for s in SUBJECTS},
-            "active": True,
-            "plan": "free",           # free / standard / family
-            "plan_until": None,        # ISO дата окончания
-            "questions_today": 0,      # счётчик вопросов за сегодня
-            "last_question_date": "",  # дата последнего вопроса
-            "pending_payment": None,   # план который ожидает оплаты
+            "broadcast": True,
+            "plan": "free",
+            "plan_until": None,
+            "questions_today": 0,
+            "last_question_date": "",
+            "pending_payment": None,
         }
     return users[uid]
 
@@ -121,20 +125,21 @@ def is_premium(user):
     if user.get("plan") in ("standard", "family"):
         until = user.get("plan_until")
         if until:
-            exp = datetime.fromisoformat(until)
-            if datetime.now() < exp:
+            if datetime.now() < datetime.fromisoformat(until):
                 return True
         user["plan"] = "free"
     return False
 
-def can_get_question(user):
+def reset_daily_if_needed(user):
     today = datetime.now(ALMATY_TZ).strftime("%Y-%m-%d")
     if user.get("last_question_date") != today:
         user["questions_today"] = 0
         user["last_question_date"] = today
-    if is_premium(user):
-        return user["questions_today"] < 3
-    return user["questions_today"] < FREE_QUESTIONS_PER_DAY
+
+def can_get_question(user):
+    reset_daily_if_needed(user)
+    limit = 3 if is_premium(user) else 1
+    return user["questions_today"] < limit
 
 def pick_question(user, subject):
     pool = QUESTIONS[subject]
@@ -166,6 +171,8 @@ def get_stats_text(user):
         overall = round(total_c/total_t*100)
         lines.append(f"\n🏆 *Итого: {total_c}/{total_t} ({overall}%)*")
         lines.append("🔥 Отлично!" if overall >= 80 else "💪 Хорошо!" if overall >= 60 else "📚 Нужно больше практики!")
+    else:
+        lines.append("\nЕщё нет ответов. Нажми *❓ Получить вопрос* 🚀")
     return "\n".join(lines)
 
 # ══════════════════════════════════════════════
@@ -174,33 +181,33 @@ def get_stats_text(user):
 async def send_question(bot, chat_id, subject=None):
     users = load_users()
     user = get_user(users, chat_id)
-    if not user.get("active", True):
-        return
 
     if not can_get_question(user):
+        limit = 3 if is_premium(user) else 1
         keyboard = [[InlineKeyboardButton("⭐️ Получить премиум", callback_data="show_premium")]]
         await bot.send_message(
             chat_id=chat_id,
-            text="⏳ На сегодня вопросы закончились!\n\n🆓 Бесплатный план: *1 вопрос в день*\n⭐️ Премиум: *3 вопроса в день* + все предметы\n\nХочешь больше? Подключи премиум 👇",
+            text=f"⏳ На сегодня вопросы закончились!\n\n"
+                 f"🆓 Бесплатный: *1 вопрос/день*, только История КЗ\n"
+                 f"⭐️ Премиум: *3 вопроса/день*, все предметы\n\n"
+                 f"Хочешь больше? Подключи премиум 👇",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
     premium = is_premium(user)
-    if subject is None:
-        available_subjects = SUBJECTS if premium else FREE_SUBJECTS
+    available_subjects = SUBJECTS if premium else FREE_SUBJECTS
+    if subject is None or subject not in available_subjects:
         subject = random.choice(available_subjects)
 
     idx, q = pick_question(user, subject)
     user["questions_today"] = user.get("questions_today", 0) + 1
+    reset_daily_if_needed(user)
     save_users(users)
 
-    today = datetime.now(ALMATY_TZ).strftime("%Y-%m-%d")
-    user["last_question_date"] = today
-    save_users(users)
-
-    remaining = (3 if premium else FREE_QUESTIONS_PER_DAY) - user["questions_today"]
+    limit = 3 if premium else 1
+    remaining = limit - user["questions_today"]
     text = f"📚 *{subject}*\n\n❓ {q['q']}\n\n" + "\n".join(q["opts"])
     text += f"\n\n_Осталось вопросов сегодня: {remaining}_"
 
@@ -214,7 +221,7 @@ async def send_question(bot, chat_id, subject=None):
                            reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ══════════════════════════════════════════════
-# ХЭНДЛЕРЫ — ОСНОВНЫЕ
+# СТАРТ
 # ══════════════════════════════════════════════
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -222,58 +229,61 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_users()
     user = get_user(users, uid)
     user["name"] = name
-    user["active"] = True
     save_users(users)
 
-    premium = is_premium(user)
-    plan_text = "⭐️ У тебя активен *Премиум*!" if premium else "🆓 Сейчас у тебя *бесплатный план* (1 вопрос/день)"
+    plan_text = "⭐️ У тебя активен *Премиум*!" if is_premium(user) else "🆓 Сейчас у тебя *бесплатный план* (1 вопрос/день, История КЗ)"
 
     await update.message.reply_text(
         f"👋 Привет, *{name}*!\n\n"
-        f"🎯 Репетитор для *ЕНТ 2026-2027*\n\n"
+        f"🎯 Я твой репетитор для *ЕНТ 2026-2027*\n\n"
         f"{plan_text}\n\n"
-        f"📅 Вопросы 3 раза в день (для премиум):\n"
-        f"☀️ 08:00 · 🌤 13:00 · 🌙 19:00\n\n"
-        f"📌 Команды:\n"
-        f"/question — вопрос прямо сейчас\n"
-        f"/premium — тарифы и оплата\n"
-        f"/stats — моя статистика\n"
-        f"/stop — остановить рассылку\n\n"
-        f"Поехали! 🚀",
+        f"Используй кнопки меню внизу 👇",
         parse_mode="Markdown",
         reply_markup=main_menu()
     )
     await send_question(context.bot, uid)
 
-async def question_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_question(context.bot, update.effective_user.id)
+# ══════════════════════════════════════════════
+# МЕНЮ — ОБРАБОТЧИК КНОПОК
+# ══════════════════════════════════════════════
+async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    uid = update.effective_user.id
 
-async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users = load_users()
-    user = get_user(users, update.effective_user.id)
-    await update.message.reply_text(get_stats_text(user), parse_mode="Markdown")
+    if text == "❓ Получить вопрос":
+        await send_question(context.bot, uid)
 
-async def stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users = load_users()
-    uid = str(update.effective_user.id)
-    if uid in users:
-        users[uid]["active"] = False
-        save_users(users)
-    await update.message.reply_text("⏹ Остановлено. Напиши /start чтобы возобновить.")
+    elif text == "⭐️ Премиум":
+        await show_premium_menu(update.message.reply_text)
+
+    elif text == "📊 Статистика":
+        users = load_users()
+        user = get_user(users, uid)
+        await update.message.reply_text(get_stats_text(user), parse_mode="Markdown")
+
+    elif text == "ℹ️ Помощь":
+        await update.message.reply_text(
+            "📌 *Как пользоваться ботом:*\n\n"
+            "❓ *Получить вопрос* — получить вопрос ЕНТ прямо сейчас\n"
+            "⭐️ *Премиум* — тарифы и оплата\n"
+            "📊 *Статистика* — твой прогресс по предметам\n\n"
+            "📅 *Автоматические вопросы:*\n"
+            "☀️ 08:00 · 🌤 13:00 · 🌙 19:00\n\n"
+            "🆓 Бесплатно: 1 вопрос/день, История КЗ\n"
+            "⭐️ Премиум: 3 вопроса/день, все 5 предметов\n\n"
+            "По вопросам: напиши администратору",
+            parse_mode="Markdown"
+        )
 
 # ══════════════════════════════════════════════
-# ПРЕМИУМ — ПОКАЗАТЬ ТАРИФЫ
+# ПРЕМИУМ МЕНЮ
 # ══════════════════════════════════════════════
-async def premium_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_premium_menu(update.message.reply_text)
-
 async def show_premium_menu(reply_func):
     text = (
         "⭐️ *Премиум подписка ЕНТ Репетитор*\n\n"
         "🆓 *Бесплатно:*\n"
         "• 1 вопрос в день\n"
-        "• Только История Казахстана\n"
-        "• Без статистики\n\n"
+        "• Только История Казахстана\n\n"
         "⭐️ *Стандарт — 2 990 ₸/мес:*\n"
         "• 3 вопроса в день\n"
         "• Все 5 предметов\n"
@@ -281,8 +291,7 @@ async def show_premium_menu(reply_func):
         "• Умное повторение слабых мест\n\n"
         "👨‍👩‍👧 *Семейный — 4 990 ₸/мес:*\n"
         "• До 3 детей\n"
-        "• Всё из Стандарта\n"
-        "• Отчёты родителям\n\n"
+        "• Всё из Стандарта\n\n"
         "Выбери план 👇"
     )
     keyboard = [
@@ -292,44 +301,40 @@ async def show_premium_menu(reply_func):
     await reply_func(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ══════════════════════════════════════════════
-# CALLBACK — НАЖАТИЯ КНОПОК
+# CALLBACK КНОПКИ
 # ══════════════════════════════════════════════
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
 
-    # Показать меню премиум
     if data == "show_premium":
         await show_premium_menu(query.message.reply_text)
         return
 
-    # Выбор тарифа — показываем инструкцию по оплате
     if data in ("buy_standard", "buy_family"):
         plan = "standard" if data == "buy_standard" else "family"
         price = PRICE_STANDARD if plan == "standard" else PRICE_FAMILY
         plan_name = "Стандарт" if plan == "standard" else "Семейный"
 
-        # Сохраняем pending
         users = load_users()
         user = get_user(users, query.from_user.id)
         user["pending_payment"] = plan
         save_users(users)
 
-        uid = query.from_user.id
         text = (
             f"💳 *Оплата тарифа «{plan_name}»*\n\n"
             f"Сумма: *{price} ₸*\n\n"
             f"📱 Переведи на Kaspi:\n"
             f"`{KASPI_NUMBER}`\n\n"
-            f"После перевода нажми кнопку ниже 👇\n"
-            f"Мы проверим и активируем в течение нескольких минут."
+            f"В комментарии напиши свой *Telegram ID*:\n"
+            f"`{query.from_user.id}`\n\n"
+            f"После перевода нажми кнопку ниже 👇"
         )
         keyboard = [[InlineKeyboardButton("✅ Я оплатил!", callback_data=f"paid|{plan}|{price}")]]
         await query.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-    # Пользователь нажал "Я оплатил"
     if data.startswith("paid|"):
         _, plan, price = data.split("|")
         uid = query.from_user.id
@@ -337,14 +342,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username = f"@{query.from_user.username}" if query.from_user.username else "без юзернейма"
         plan_name = "Стандарт" if plan == "standard" else "Семейный"
 
-        # Уведомляем тебя (админа)
         admin_text = (
             f"💰 *Новая оплата!*\n\n"
             f"👤 {name} ({username})\n"
             f"🆔 ID: `{uid}`\n"
             f"📦 Тариф: {plan_name}\n"
             f"💵 Сумма: {price} ₸\n\n"
-            f"Для активации напиши:\n"
+            f"Для активации отправь:\n"
             f"`/activate {uid} {plan}`"
         )
         try:
@@ -354,13 +358,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await query.message.reply_text(
             "✅ *Заявка принята!*\n\n"
-            "Мы проверяем оплату и активируем подписку в течение *5–15 минут*.\n\n"
+            "Проверяем оплату и активируем подписку в течение *5–15 минут*.\n"
             "Если прошло больше 30 минут — напиши нам.",
             parse_mode="Markdown"
         )
         return
 
-    # Ответ на вопрос
     if data.startswith("ans|"):
         parts = data.split("|")
         if len(parts) < 5:
@@ -385,66 +388,51 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # АДМИН КОМАНДЫ
 # ══════════════════════════════════════════════
 async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Активация подписки: /activate [user_id] [plan]"""
     if update.effective_user.id != ADMIN_ID:
         return
-
     args = context.args
     if len(args) < 2:
         await update.message.reply_text("Использование: /activate [user_id] [standard|family]")
         return
-
-    target_uid = args[0]
-    plan = args[1]
+    target_uid, plan = args[0], args[1]
     if plan not in ("standard", "family"):
-        await update.message.reply_text("План должен быть: standard или family")
+        await update.message.reply_text("План: standard или family")
         return
-
     users = load_users()
     user = get_user(users, target_uid)
     user["plan"] = plan
     user["plan_until"] = (datetime.now() + timedelta(days=30)).isoformat()
     user["pending_payment"] = None
     save_users(users)
-
     plan_name = "Стандарт" if plan == "standard" else "Семейный"
     exp_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
-
-    # Уведомляем пользователя
     try:
         await context.bot.send_message(
             chat_id=int(target_uid),
             text=f"🎉 *Подписка активирована!*\n\n"
                  f"✅ Тариф: *{plan_name}*\n"
                  f"📅 Действует до: *{exp_date}*\n\n"
-                 f"Теперь тебе доступны:\n"
-                 f"• 3 вопроса в день\n"
-                 f"• Все 5 предметов\n"
-                 f"• Полная статистика\n\n"
+                 f"Теперь доступны все 5 предметов и 3 вопроса в день!\n\n"
                  f"Удачи на ЕНТ! 🚀",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=main_menu()
         )
     except Exception as e:
-        logger.error(f"Не удалось уведомить {target_uid}: {e}")
-
-    await update.message.reply_text(f"✅ Подписка {plan_name} активирована для {target_uid} до {exp_date}")
+        logger.error(f"Ошибка уведомления {target_uid}: {e}")
+    await update.message.reply_text(f"✅ Активировано: {plan_name} для {target_uid} до {exp_date}")
 
 async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Список всех пользователей: /users"""
     if update.effective_user.id != ADMIN_ID:
         return
     users = load_users()
-    lines = [f"👥 *Всего пользователей: {len(users)}*\n"]
-    premium_count = 0
+    premium_count = sum(1 for u in users.values() if is_premium(u))
+    lines = [f"👥 *Всего: {len(users)} | ⭐️ Премиум: {premium_count} | 🆓 Бесплатных: {len(users)-premium_count}*\n"]
     for uid, u in users.items():
-        plan = u.get("plan", "free")
         if is_premium(u):
-            premium_count += 1
             until = datetime.fromisoformat(u["plan_until"]).strftime("%d.%m")
-            lines.append(f"⭐️ {u.get('name','?')} (`{uid}`) — {plan} до {until}")
+            lines.append(f"⭐️ {u.get('name','?')} `{uid}` — до {until}")
         else:
-            lines.append(f"🆓 {u.get('name','?')} (`{uid}`)")
-    lines.append(f"\n⭐️ Премиум: {premium_count} | 🆓 Бесплатных: {len(users)-premium_count}")
+            lines.append(f"🆓 {u.get('name','?')} `{uid}`")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 # ══════════════════════════════════════════════
@@ -453,7 +441,7 @@ async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def broadcast(context: ContextTypes.DEFAULT_TYPE):
     users = load_users()
     for uid, user in users.items():
-        if user.get("active", True):
+        if user.get("broadcast", True):
             try:
                 await send_question(context.bot, int(uid))
                 await asyncio.sleep(0.3)
@@ -463,33 +451,10 @@ async def broadcast(context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════
-
-async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    uid = update.effective_user.id
-    if text == "❓ Получить вопрос":
-        await send_question(context.bot, uid)
-    elif text == "⭐️ Премиум":
-        await show_premium_menu(update.message.reply_text)
-    elif text == "📊 Моя статистика":
-        users = load_users()
-        user = get_user(users, uid)
-        await update.message.reply_text(get_stats_text(user), parse_mode="Markdown")
-    elif text == "⏹ Остановить":
-        users = load_users()
-        u = get_user(users, uid)
-        u["active"] = False
-        save_users(users)
-        await update.message.reply_text("⏹ Рассылка остановлена. Нажми /start чтобы возобновить.")
-
 def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("question", question_cmd))
-    app.add_handler(CommandHandler("stats", stats_cmd))
-    app.add_handler(CommandHandler("stop", stop_cmd))
-    app.add_handler(CommandHandler("premium", premium_cmd))
     app.add_handler(CommandHandler("activate", activate_cmd))
     app.add_handler(CommandHandler("users", users_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
@@ -504,13 +469,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# ══════════════════════════════════════════════
-# ГЛАВНОЕ МЕНЮ
-# ══════════════════════════════════════════════
-def main_menu():
-    keyboard = [
-        [KeyboardButton("❓ Получить вопрос"), KeyboardButton("⭐️ Премиум")],
-        [KeyboardButton("📊 Моя статистика"), KeyboardButton("⏹ Остановить")],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
