@@ -291,7 +291,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════
 # ПРЕМИУМ МЕНЮ
 # ══════════════════════════════════════════════
-async def show_premium_menu(reply_func, user=None):
+async def show_premium_menu(reply_func):
     text = (
         "⭐️ *Премиум подписка ЕНТ Репетитор*\n\n"
         "🆓 *Бесплатно:*\n"
@@ -404,6 +404,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════
 async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text(f"Нет доступа. Твой ID: {update.effective_user.id}")
         return
     args = context.args
     if len(args) < 2:
@@ -421,20 +422,23 @@ async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_users(users)
     plan_name = "Стандарт" if plan == "standard" else "Семейный"
     exp_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
-    try:
-    await context.bot.send_message(
-        chat_id=int(target_uid),
-        text=f"🎉 *Подписка активирована!*\n\n"
-             f"✅ Тариф: *{plan_name}*\n"
-             f"📅 Действует до: *{exp_date}*\n\n"
-             f"Теперь доступны все 5 предметов и 3 вопроса в день!\n\n"
-             f"Удачи на ЕНТ! 🚀",
-        parse_mode="Markdown",
-        reply_markup=main_menu()
+    notice = (
+        "🎉 *Подписка активирована!*\n\n"
+        f"✅ Тариф: *{plan_name}*\n"
+        f"📅 Действует до: *{exp_date}*\n\n"
+        "Теперь доступны все 5 предметов и 3 вопроса в день!\n\n"
+        "Удачи на ЕНТ! 🚀"
     )
-    await update.message.reply_text(f"✅ Сообщение отправлено пользователю {target_uid}")
-except Exception as e:
-    await update.message.reply_text(f"❌ Ошибка отправки: {e}")
+    try:
+        await context.bot.send_message(
+            chat_id=int(target_uid),
+            text=notice,
+            parse_mode="Markdown",
+            reply_markup=main_menu()
+        )
+        await update.message.reply_text(f"✅ Активировано и отправлено: {plan_name} для {target_uid} до {exp_date}")
+    except Exception as e:
+        await update.message.reply_text(f"✅ Активировано: {plan_name} до {exp_date}\n❌ Сообщение не дошло: {e}")
 
 async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
