@@ -422,19 +422,19 @@ async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plan_name = "Стандарт" if plan == "standard" else "Семейный"
     exp_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
     try:
-        await context.bot.send_message(
-            chat_id=int(target_uid),
-            text=f"🎉 *Подписка активирована!*\n\n"
-                 f"✅ Тариф: *{plan_name}*\n"
-                 f"📅 Действует до: *{exp_date}*\n\n"
-                 f"Теперь доступны все 5 предметов и 3 вопроса в день!\n\n"
-                 f"Удачи на ЕНТ! 🚀",
-            parse_mode="Markdown",
-            reply_markup=main_menu()
-        )
-    except Exception as e:
-        logger.error(f"Ошибка уведомления {target_uid}: {e}")
-    await update.message.reply_text(f"✅ Активировано: {plan_name} для {target_uid} до {exp_date}")
+    await context.bot.send_message(
+        chat_id=int(target_uid),
+        text=f"🎉 *Подписка активирована!*\n\n"
+             f"✅ Тариф: *{plan_name}*\n"
+             f"📅 Действует до: *{exp_date}*\n\n"
+             f"Теперь доступны все 5 предметов и 3 вопроса в день!\n\n"
+             f"Удачи на ЕНТ! 🚀",
+        parse_mode="Markdown",
+        reply_markup=main_menu()
+    )
+    await update.message.reply_text(f"✅ Сообщение отправлено пользователю {target_uid}")
+except Exception as e:
+    await update.message.reply_text(f"❌ Ошибка отправки: {e}")
 
 async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
