@@ -291,7 +291,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════
 # ПРЕМИУМ МЕНЮ
 # ══════════════════════════════════════════════
-async def show_premium_menu(reply_func):
+async def show_premium_menu(reply_func, user=None):
     text = (
         "⭐️ *Премиум подписка ЕНТ Репетитор*\n\n"
         "🆓 *Бесплатно:*\n"
