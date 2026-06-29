@@ -90,7 +90,7 @@ def main_menu():
         [KeyboardButton("❓ Получить вопрос"), KeyboardButton("⭐️ Премиум")],
         [KeyboardButton("📊 Статистика"),       KeyboardButton("ℹ️ Помощь")],
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
 # ══════════════════════════════════════════════
 # ДАННЫЕ
