@@ -292,6 +292,30 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ПРЕМИУМ МЕНЮ
 # ══════════════════════════════════════════════
 async def show_premium_menu(reply_func, user=None):
+    if user and is_premium(user):
+        plan = user.get("plan", "free")
+        until = datetime.fromisoformat(user["plan_until"]).strftime("%d.%m.%Y")
+        if plan == "family":
+            await reply_func(
+                f"👨‍👩‍👧 У тебя уже активен *Семейный* план!\n\n"
+                f"📅 Действует до: *{until}*\n\n"
+                f"Это максимальный тариф — все возможности открыты 🎉",
+                parse_mode="Markdown"
+            )
+            return
+        if plan == "standard":
+            text = (
+                f"⭐️ У тебя активен *Стандарт* до {until}\n\n"
+                f"Хочешь больше? Переходи на *Семейный*:\n\n"
+                f"👨‍👩‍👧 *Семейный — 4 990 ₸/мес:*\n"
+                f"• До 3 детей\n"
+                f"• Все предметы и 3 вопроса/день\n"
+                f"• Отчёты родителям\n\n"
+                f"Оформить? 👇"
+            )
+            keyboard = [[InlineKeyboardButton("👨‍👩‍👧 Перейти на Семейный", callback_data="buy_family")]]
+            await reply_func(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
     text = (
         "⭐️ *Премиум подписка ЕНТ Репетитор*\n\n"
         "🆓 *Бесплатно:*\n"
@@ -300,8 +324,7 @@ async def show_premium_menu(reply_func, user=None):
         "⭐️ *Стандарт — 2 990 ₸/мес:*\n"
         "• 3 вопроса в день\n"
         "• Все 5 предметов\n"
-        "• Полная статистика\n"
-        "• Умное повторение слабых мест\n\n"
+        "• Полная статистика\n\n"
         "👨‍👩‍👧 *Семейный — 4 990 ₸/мес:*\n"
         "• До 3 детей\n"
         "• Всё из Стандарта\n\n"
