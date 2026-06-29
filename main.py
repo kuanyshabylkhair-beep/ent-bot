@@ -389,8 +389,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════
 async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-    await update.message.reply_text(f"Нет доступа. Твой ID: {update.effective_user.id}")
-    return
+        await update.message.reply_text(f"Нет доступа. Твой ID: {update.effective_user.id}")
+        return
     args = context.args
     if len(args) < 2:
         await update.message.reply_text("Использование: /activate [user_id] [standard|family]")
