@@ -90,7 +90,7 @@ def main_menu():
         [KeyboardButton("❓ Получить вопрос"), KeyboardButton("⭐️ Премиум")],
         [KeyboardButton("📊 Статистика"),       KeyboardButton("ℹ️ Помощь")],
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
 
 # ══════════════════════════════════════════════
 # ДАННЫЕ
@@ -250,18 +250,25 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = update.effective_user.id
 
+    # Обработка если пользователь написал start текстом
+    if text.lower() in ("start", "старт", "/start", "начать", "начало"):
+        await start(update, context)
+        return
+
     if text == "❓ Получить вопрос":
         await send_question(context.bot, uid)
 
     elif text == "⭐️ Премиум":
-        await show_premium_menu(update.message.reply_text)
+        users = load_users()
+        user = get_user(users, uid)
+        await show_premium_menu(update.message.reply_text, user)
 
     elif text == "📊 Статистика":
         users = load_users()
         user = get_user(users, uid)
         await update.message.reply_text(get_stats_text(user), parse_mode="Markdown")
 
-    elif text == "ℹ️ Помощь":
+    elif text == "ℹ️ Помощь" or text.lower() in ("помощь", "help", "?"):
         await update.message.reply_text(
             "📌 *Как пользоваться ботом:*\n\n"
             "❓ *Получить вопрос* — получить вопрос ЕНТ прямо сейчас\n"
@@ -273,6 +280,12 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⭐️ Премиум: 3 вопроса/день, все 5 предметов\n\n"
             "По вопросам: напиши администратору",
             parse_mode="Markdown"
+        )
+    else:
+        # Любое другое сообщение — показываем меню
+        await update.message.reply_text(
+            "Используй кнопки меню 👇",
+            reply_markup=main_menu()
         )
 
 # ══════════════════════════════════════════════
@@ -309,7 +322,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "show_premium":
-        await show_premium_menu(query.message.reply_text)
+        users = load_users()
+        user = get_user(users, query.from_user.id)
+        await show_premium_menu(query.message.reply_text, user)
         return
 
     if data in ("buy_standard", "buy_family"):
@@ -389,7 +404,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════
 async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text(f"Нет доступа. Твой ID: {update.effective_user.id}")
         return
     args = context.args
     if len(args) < 2:
