@@ -557,7 +557,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Не удалось уведомить админа: {e}")
-
+            await query.message.reply_text(f"DEBUG ADMIN ERROR: {e}")
         await query.message.reply_text(
             "✅ *Заявка принята!*\n\n"
             "Проверяем оплату и активируем подписку в течение *5–15 минут*.\n"
