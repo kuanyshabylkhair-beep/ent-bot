@@ -113,7 +113,7 @@ TEXTS = {
         "btn_stats": "📊 Статистика",
         "btn_help": "ℹ️ Помощь",
         "btn_lang": "🌐 Тіл / Язык",
-        "welcome": "👋 Привет, *{name}*!\n\n🎯 Я твой репетитор для *ЕНТ 2026-2027*\n\n{plan_text}\n\nИспользуй кнопки меню внизу 👇",
+        "welcome": "👋 Привет, *{name}*!\n\n🎯 Я твой репетитор для *ЕНТ 2026-2027*\n\n{plan_text}\n\n🔔 *Включи уведомления у Telegram для этого чата* — я буду присылать вопросы по расписанию, и ты не пропустишь ни одного!\n\nИспользуй кнопки меню внизу 👇",
         "plan_premium": "⭐️ У тебя активен *{plan}*!",
         "plan_free": "🆓 Сейчас у тебя *бесплатный план* (1 вопрос/день, История КЗ)",
         "choose_lang": "🌐 Выбери язык / Тілді таңда:",
@@ -165,7 +165,7 @@ TEXTS = {
         "btn_stats": "📊 Статистика",
         "btn_help": "ℹ️ Көмек",
         "btn_lang": "🌐 Тіл / Язык",
-        "welcome": "👋 Сәлем, *{name}*!\n\n🎯 Мен сенің *ЕНТ 2026-2027* репетиторыңмын\n\n{plan_text}\n\nТөмендегі мәзір батырмаларын қолдан 👇",
+        "welcome": "👋 Сәлем, *{name}*!\n\n🎯 Мен сенің *ЕНТ 2026-2027* репетиторыңмын\n\n{plan_text}\n\n🔔 *Осы чат үшін Telegram хабарландыруларын қос* — мен сұрақтарды кесте бойынша жіберемін, бірде-бірін жіберіп алмайсың!\n\nТөмендегі мәзір батырмаларын қолдан 👇",
         "plan_premium": "⭐️ Сенде *{plan}* тарифі белсенді!",
         "plan_free": "🆓 Қазір сенде *тегін жоспар* бар (1 сұрақ/күн, ҚР тарихы)",
         "choose_lang": "🌐 Тілді таңда / Выбери язык:",
@@ -862,7 +862,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         display_subject = subject_to_display(subject, lang)
         correct_letter = q_ru['ans']
         correct_full_text = next((opt for opt in q_display['opts'] if opt.startswith(correct_letter)), correct_letter)
-        result = t(lang, "correct", name=user['name'], ans=correct_full_text) if is_correct else t(lang, "incorrect", chosen=chosen, ans=correct_full_text)
+        safe_user_name = user.get('name') or ("Ученик" if lang == "ru" else "Оқушы")
+        result = t(lang, "correct", name=safe_user_name, ans=correct_full_text) if is_correct else t(lang, "incorrect", chosen=chosen, ans=correct_full_text)
         result += t(lang, "explanation", exp=q_display['exp'])
         result += f"\n\n📊 {display_subject}: {st['correct']}/{st['total']}"
         await query.edit_message_reply_markup(reply_markup=None)
