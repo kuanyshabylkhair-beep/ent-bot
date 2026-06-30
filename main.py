@@ -705,6 +705,28 @@ async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"🆓 {u.get('name','?')} `{uid}`")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+async def refresh_menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    users = load_users()
+    sent, failed = 0, 0
+    await update.message.reply_text(f"🔄 Обновляю меню у {len(users)} пользователей...")
+    for uid in users.keys():
+        try:
+            await context.bot.send_message(
+                chat_id=int(uid),
+                text="🔄 Меню обновлено! Появилась новая кнопка *🧪 Режим теста* 👇",
+                parse_mode="Markdown",
+                reply_markup=main_menu()
+            )
+            sent += 1
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            failed += 1
+            logger.warning(f"Не удалось обновить меню {uid}: {e}")
+    await update.message.reply_text(f"✅ Готово! Отправлено: {sent}, ошибок: {failed}")
+
+
 # ══════════════════════════════════════════════
 # РАССЫЛКА (уведомления)
 # ══════════════════════════════════════════════
@@ -727,6 +749,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("activate", activate_cmd))
     app.add_handler(CommandHandler("users", users_cmd))
+    app.add_handler(CommandHandler("refresh_menu", refresh_menu_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
     app.add_handler(CallbackQueryHandler(button_callback))
 
