@@ -311,12 +311,14 @@ def subject_to_display(canonical_subject, lang):
 # ══════════════════════════════════════════════
 # МЕНЮ
 # ══════════════════════════════════════════════
-def main_menu(lang="ru"):
+def main_menu(lang="ru", is_admin=False):
     keyboard = [
         [KeyboardButton(t(lang, "btn_question")), KeyboardButton(t(lang, "btn_test"))],
         [KeyboardButton(t(lang, "btn_premium")), KeyboardButton(t(lang, "btn_stats"))],
         [KeyboardButton(t(lang, "btn_help")), KeyboardButton(t(lang, "btn_lang"))],
     ]
+    if is_admin:
+        keyboard.append([KeyboardButton("🛠 Админ-панель")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
 # ══════════════════════════════════════════════
@@ -547,7 +549,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         t(lang, "welcome", name=name, plan_text=plan_text),
         parse_mode="Markdown",
-        reply_markup=main_menu(lang)
+        reply_markup=main_menu(lang, is_admin=(uid == ADMIN_ID))
     )
     await send_question(context.bot, uid)
 
@@ -638,8 +640,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == t(lang, "btn_help"):
         await update.message.reply_text(t(lang, "help_text"), parse_mode="Markdown")
 
+    elif text == "🛠 Админ-панель" and uid == ADMIN_ID:
+        await show_admin_panel(update.message.reply_text)
+
     else:
-        await update.message.reply_text(t(lang, "use_menu"), reply_markup=main_menu(lang))
+        await update.message.reply_text(t(lang, "use_menu"), reply_markup=main_menu(lang, is_admin=(uid == ADMIN_ID)))
 
 # ══════════════════════════════════════════════
 # ПРЕМИУМ МЕНЮ
@@ -688,7 +693,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = get_user(users, query.from_user.id)
         user["lang"] = new_lang
         save_users(users)
-        await query.message.reply_text(t(new_lang, "lang_set"), reply_markup=main_menu(new_lang))
+        await query.message.reply_text(t(new_lang, "lang_set"), reply_markup=main_menu(new_lang, is_admin=(query.from_user.id == ADMIN_ID)))
         return
 
     if data == "show_premium":
