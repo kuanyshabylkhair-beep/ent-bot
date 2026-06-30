@@ -122,7 +122,7 @@ TEXTS = {
         "remaining": "Осталось вопросов сегодня",
         "limit_reached": "⏳ На сегодня вопросы закончились! (лимит: {limit}/день)\n\n🆓 Бесплатный: 1 вопрос/день, только История КЗ\n⭐️ Стандарт (790 ₸): 3 вопроса/день, все предметы\n⭐️ Премиум (990 ₸): 5 вопросов/день, все предметы\n🧪 Премиум+Тест (1590 ₸): + режим теста до 50 вопросов/день\n\nХочешь больше? 👇",
         "btn_get_premium": "⭐️ Получить премиум",
-        "correct": "✅ *Правильно!* Молодец, {name}!\n\n",
+        "correct": "✅ *Правильно!* Молодец, {name}!\nОтвет: *{ans}*\n\n",
         "incorrect": "❌ *Неверно.* Ты: {chosen}, правильно: *{ans}*\n\n",
         "explanation": "💡 {exp}",
         "test_no_access": "🧪 Режим теста доступен только в тарифе *Премиум + Тест* (1590 ₸/мес).",
@@ -174,7 +174,7 @@ TEXTS = {
         "remaining": "Бүгін қалған сұрақтар",
         "limit_reached": "⏳ Бүгінге сұрақтар бітті! (лимит: {limit}/күн)\n\n🆓 Тегін: 1 сұрақ/күн, тек ҚР тарихы\n⭐️ Стандарт (790 ₸): 3 сұрақ/күн, барлық пәндер\n⭐️ Премиум (990 ₸): 5 сұрақ/күн, барлық пәндер\n🧪 Премиум+Тест (1590 ₸): + күніне 50 сұраққа дейін тест режимі\n\nКөбірек қалайсың ба? 👇",
         "btn_get_premium": "⭐️ Премиум алу",
-        "correct": "✅ *Дұрыс!* Жарайсың, {name}!\n\n",
+        "correct": "✅ *Дұрыс!* Жарайсың, {name}!\nЖауап: *{ans}*\n\n",
         "incorrect": "❌ *Қате.* Сен: {chosen}, дұрысы: *{ans}*\n\n",
         "explanation": "💡 {exp}",
         "test_no_access": "🧪 Тест режимі тек *Премиум + Тест* тарифінде қолжетімді (1590 ₸/ай).",
@@ -857,7 +857,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         display_subject = subject_to_display(subject, lang)
         correct_letter = q_ru['ans']
         correct_full_text = next((opt for opt in q_display['opts'] if opt.startswith(correct_letter)), correct_letter)
-        result = t(lang, "correct", name=user['name']) if is_correct else t(lang, "incorrect", chosen=chosen, ans=correct_full_text)
+        result = t(lang, "correct", name=user['name'], ans=correct_full_text) if is_correct else t(lang, "incorrect", chosen=chosen, ans=correct_full_text)
         result += t(lang, "explanation", exp=q_display['exp'])
         result += f"\n\n📊 {display_subject}: {st['correct']}/{st['total']}"
         await query.edit_message_reply_markup(reply_markup=None)
