@@ -593,6 +593,25 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = update.effective_user.id
 
+    # Админ вводит ID пользователя для активации подписки
+    if uid == ADMIN_ID and context.user_data.get("awaiting_activate_id"):
+        context.user_data["awaiting_activate_id"] = False
+        target_id = text.strip()
+        if not target_id.isdigit():
+            await update.message.reply_text("⚠️ Это не похоже на ID (должно быть число). Попробуй ещё раз через /admin")
+            return
+        keyboard = [
+            [InlineKeyboardButton("⭐️ Стандарт (790 ₸)", callback_data=f"adm_act|{target_id}|standard")],
+            [InlineKeyboardButton("⭐️ Премиум (990 ₸)", callback_data=f"adm_act|{target_id}|premium")],
+            [InlineKeyboardButton("🧪 Премиум+Тест (1590 ₸)", callback_data=f"adm_act|{target_id}|premium_test")],
+        ]
+        await update.message.reply_text(
+            f"Выбери тариф для активации пользователю `{target_id}` 👇",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
     if text.lower() in ("start", "старт", "/start", "начать", "начало", "бастау"):
         await start(update, context)
         return
@@ -752,6 +771,44 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data == "adm_users":
+        if query.from_user.id != ADMIN_ID:
+            return
+        await send_users_list(query.message.reply_text)
+        return
+
+    if data == "adm_refresh":
+        if query.from_user.id != ADMIN_ID:
+            return
+        await do_refresh_menu(query.message.reply_text, context.bot)
+        return
+
+    if data == "adm_activate_start":
+        if query.from_user.id != ADMIN_ID:
+            return
+        context.user_data["awaiting_activate_id"] = True
+        await query.message.reply_text(
+            "✏️ Пришли Telegram ID пользователя для активации (просто числом).\n\n"
+            "Например: 123456789"
+        )
+        return
+
+    if data.startswith("adm_act_choose|"):
+        if query.from_user.id != ADMIN_ID:
+            return
+        _, target_uid = data.split("|")
+        keyboard = [
+            [InlineKeyboardButton("⭐️ Стандарт (790 ₸)", callback_data=f"adm_act|{target_uid}|standard")],
+            [InlineKeyboardButton("⭐️ Премиум (990 ₸)", callback_data=f"adm_act|{target_uid}|premium")],
+            [InlineKeyboardButton("🧪 Премиум+Тест (1590 ₸)", callback_data=f"adm_act|{target_uid}|premium_test")],
+        ]
+        await query.message.reply_text(
+            f"Выбери тариф для активации пользователю `{target_uid}` 👇",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
     if data.startswith("adm_act|"):
         if query.from_user.id != ADMIN_ID:
             return
@@ -853,6 +910,9 @@ async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
+    await send_users_list(update.message.reply_text)
+
+async def send_users_list(reply_func):
     users = load_users()
     premium_count = sum(1 for u in users.values() if is_premium(u))
     lines = [f"👥 *Всего: {len(users)} | ⭐️ Премиум: {premium_count} | 🆓 Бесплатных: {len(users)-premium_count}*\n"]
@@ -864,25 +924,53 @@ async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"⭐️{lang_flag} {u.get('name','?')} `{uid}` — {plan_label} до {until}")
         else:
             lines.append(f"🆓{lang_flag} {u.get('name','?')} `{uid}`")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await reply_func("\n".join(lines), parse_mode="Markdown")
 
 async def refresh_menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
+    await do_refresh_menu(update.message.reply_text, context.bot)
+
+async def do_refresh_menu(reply_func, bot):
     users = load_users()
     sent, failed = 0, 0
-    await update.message.reply_text(f"🔄 Обновляю меню у {len(users)} пользователей...")
+    await reply_func(f"🔄 Обновляю меню у {len(users)} пользователей...")
     for uid, u in users.items():
         try:
             lang = get_lang(u)
-            text = "🔄 Меню обновлено! Появилась новая кнопка *🌐 Тіл/Язык* — теперь бот доступен на казахском 👇" if lang == "ru" else "🔄 Мәзір жаңартылды! Жаңа *🌐 Тіл/Язык* батырмасы пайда болды 👇"
-            await context.bot.send_message(chat_id=int(uid), text=text, parse_mode="Markdown", reply_markup=main_menu(lang))
+            text = "🔄 Меню обновлено!" if lang == "ru" else "🔄 Мәзір жаңартылды!"
+            await bot.send_message(chat_id=int(uid), text=text, parse_mode="Markdown", reply_markup=main_menu(lang))
             sent += 1
             await asyncio.sleep(0.3)
         except Exception as e:
             failed += 1
             logger.warning(f"Не удалось обновить меню {uid}: {e}")
-    await update.message.reply_text(f"✅ Готово! Отправлено: {sent}, ошибок: {failed}")
+    await reply_func(f"✅ Готово! Отправлено: {sent}, ошибок: {failed}")
+
+# ══════════════════════════════════════════════
+# АДМИН-ПАНЕЛЬ
+# ══════════════════════════════════════════════
+async def admin_panel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    await show_admin_panel(update.message.reply_text)
+
+async def show_admin_panel(reply_func):
+    users = load_users()
+    premium_count = sum(1 for u in users.values() if is_premium(u))
+    text = (
+        f"🛠 *Админ-панель*\n\n"
+        f"👥 Всего пользователей: *{len(users)}*\n"
+        f"⭐️ Премиум: *{premium_count}* | 🆓 Бесплатных: *{len(users)-premium_count}*\n\n"
+        f"Выбери действие 👇"
+    )
+    keyboard = [
+        [InlineKeyboardButton("👥 Список пользователей", callback_data="adm_users")],
+        [InlineKeyboardButton("🔄 Обновить меню у всех", callback_data="adm_refresh")],
+        [InlineKeyboardButton("✅ Активировать подписку", callback_data="adm_activate_start")],
+    ]
+    await reply_func(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 # ══════════════════════════════════════════════
 # РАССЫЛКА
@@ -907,6 +995,7 @@ def main():
     app.add_handler(CommandHandler("activate", activate_cmd))
     app.add_handler(CommandHandler("users", users_cmd))
     app.add_handler(CommandHandler("refresh_menu", refresh_menu_cmd))
+    app.add_handler(CommandHandler("admin", admin_panel_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
     app.add_handler(CallbackQueryHandler(button_callback))
 
