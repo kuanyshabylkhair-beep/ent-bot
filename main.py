@@ -12,7 +12,10 @@ import pytz
 
 TOKEN = "8922456276:AAHX1nCkvDEv6K7jeo5OJezrwdGSh_qt-Ao"
 ALMATY_TZ = pytz.timezone("Asia/Almaty")
-DATA_FILE = Path("users.json")
+# Используем постоянную папку /data (Railway Volume), если она существует,
+# иначе fallback на текущую папку (для локального теста)
+_data_dir = Path("/data") if Path("/data").exists() else Path(".")
+DATA_FILE = _data_dir / "users.json"
 ADMIN_ID = 1001451035
 KASPI_NUMBER = "+7 747 546 3669"
 SUPPORT_USERNAME = "kuanyshabylkhair"
