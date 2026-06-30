@@ -14,6 +14,7 @@ ALMATY_TZ = pytz.timezone("Asia/Almaty")
 DATA_FILE = Path("users.json")
 ADMIN_ID = 1001451035
 KASPI_NUMBER = "+7 747 546 3669"
+SUPPORT_USERNAME = "kuanyshabylkhair"
 
 # ── Тарифы ──
 PRICE_STANDARD = 790    # 3 уведомления/день, все предметы
@@ -550,20 +551,58 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🆔 ID: `{uid}`\n"
             f"📦 Тариф: {plan_name}\n"
             f"💵 Сумма: {price} ₸\n\n"
-            f"Для активации отправь:\n"
-            f"`/activate {uid} {plan}`"
+            f"Подтверди оплату на Kaspi и нажми кнопку 👇"
         )
+        admin_keyboard = [[
+            InlineKeyboardButton(f"✅ Активировать {plan_name}", callback_data=f"adm_act|{uid}|{plan}")
+        ]]
         try:
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, parse_mode="Markdown")
+            await context.bot.send_message(
+                chat_id=ADMIN_ID, text=admin_text, parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(admin_keyboard)
+            )
         except Exception as e:
             logger.error(f"Не удалось уведомить админа: {e}")
             await query.message.reply_text(f"DEBUG ADMIN ERROR: {e}")
+
+        support_keyboard = [[InlineKeyboardButton("💬 Написать в поддержку", url=f"https://t.me/{SUPPORT_USERNAME}")]]
         await query.message.reply_text(
             "✅ *Заявка принята!*\n\n"
             "Проверяем оплату и активируем подписку в течение *5–15 минут*.\n"
-            "Если прошло больше 30 минут — напиши нам.",
-            parse_mode="Markdown"
+            "Если прошло больше 30 минут — напиши нам 👇",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(support_keyboard)
         )
+        return
+
+    if data.startswith("adm_act|"):
+        if query.from_user.id != ADMIN_ID:
+            return
+        _, target_uid, plan = data.split("|")
+        users = load_users()
+        user = get_user(users, target_uid)
+        user["plan"] = plan
+        user["plan_until"] = (datetime.now() + timedelta(days=30)).isoformat()
+        user["pending_payment"] = None
+        save_users(users)
+        plan_name = PLAN_NAMES[plan]
+        exp_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
+
+        extra = "\n\n🧪 Тебе доступен Режим теста — до 50 вопросов в день!" if plan == "premium_test" else ""
+        notice = (
+            "🎉 *Подписка активирована!*\n\n"
+            f"✅ Тариф: *{plan_name}*\n"
+            f"📅 Действует до: *{exp_date}*"
+            f"{extra}\n\n"
+            "Удачи на ЕНТ! 🚀"
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=int(target_uid), text=notice, parse_mode="Markdown", reply_markup=main_menu()
+            )
+            await query.edit_message_text(f"✅ Активировано: {plan_name} для {target_uid} до {exp_date}\n(клиент уведомлён)")
+        except Exception as e:
+            await query.edit_message_text(f"✅ Активировано: {plan_name} до {exp_date}\n❌ Клиент не уведомлён: {e}")
         return
 
     if data.startswith("ans|"):
