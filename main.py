@@ -1,6 +1,7 @@
 import logging
 import json
 import random
+import re
 import asyncio
 from pathlib import Path
 from datetime import time as dtime, datetime, timedelta
@@ -541,13 +542,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("paid|"):
         _, plan, price = data.split("|")
         uid = query.from_user.id
-        name = query.from_user.first_name or "Пользователь"
+        raw_name = query.from_user.first_name or "Пользователь"
+        # Убираем символы, которые ломают Markdown-разметку (* _ ` [ ])
+        safe_name = re.sub(r'[*_`\[\]]', '', raw_name)
         username = f"@{query.from_user.username}" if query.from_user.username else "без юзернейма"
         plan_name = PLAN_NAMES.get(plan, plan)
 
         admin_text = (
             f"💰 *Новая оплата!*\n\n"
-            f"👤 {name} ({username})\n"
+            f"👤 {safe_name} ({username})\n"
             f"🆔 ID: `{uid}`\n"
             f"📦 Тариф: {plan_name}\n"
             f"💵 Сумма: {price} ₸\n\n"
@@ -563,6 +566,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
             logger.error(f"Не удалось уведомить админа: {e}")
+            # Запасной вариант — без Markdown вообще, чтобы админ точно получил сообщение
+            try:
+                plain_text = f"Новая оплата!\n\n{safe_name} ({username})\nID: {uid}\nТариф: {plan_name}\nСумма: {price} тг\n\nАктивируй: /activate {uid} {plan}"
+                await context.bot.send_message(chat_id=ADMIN_ID, text=plain_text, reply_markup=InlineKeyboardMarkup(admin_keyboard))
+            except Exception as e2:
+                logger.error(f"Запасной вариант тоже не сработал: {e2}")
+
             await query.message.reply_text(f"DEBUG ADMIN ERROR: {e}")
 
         support_keyboard = [[InlineKeyboardButton("💬 Написать в поддержку", url=f"https://t.me/{SUPPORT_USERNAME}")]]
