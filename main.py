@@ -14,11 +14,34 @@ ALMATY_TZ = pytz.timezone("Asia/Almaty")
 DATA_FILE = Path("users.json")
 ADMIN_ID = 1001451035
 KASPI_NUMBER = "+7 747 546 3669"
-PRICE_STANDARD = 2990
-PRICE_FAMILY = 4990
+
+# ── Тарифы ──
+PRICE_STANDARD = 790    # 3 уведомления/день, все предметы
+PRICE_PREMIUM = 990     # 5 уведомлений/день, все предметы
+PRICE_PREMIUM_TEST = 1590  # 5 уведомлений/день + режим теста (50 вопросов/день)
+
+PLAN_NAMES = {
+    "standard": "Стандарт",
+    "premium": "Премиум",
+    "premium_test": "Премиум + Тест",
+}
+PLAN_PRICES = {
+    "standard": PRICE_STANDARD,
+    "premium": PRICE_PREMIUM,
+    "premium_test": PRICE_PREMIUM_TEST,
+}
+PLAN_NOTIFY_LIMIT = {
+    "free": 1,
+    "standard": 3,
+    "premium": 5,
+    "premium_test": 5,
+}
+TEST_DAILY_LIMIT = 50
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+FREE_SUBJECTS = ["История Казахстана"]
 
 QUESTIONS = {
     "История Казахстана": [
@@ -80,17 +103,17 @@ QUESTIONS = {
 }
 
 SUBJECTS = list(QUESTIONS.keys())
-FREE_SUBJECTS = ["История Казахстана"]
 
 # ══════════════════════════════════════════════
 # МЕНЮ
 # ══════════════════════════════════════════════
 def main_menu():
     keyboard = [
-        [KeyboardButton("❓ Получить вопрос"), KeyboardButton("⭐️ Премиум")],
-        [KeyboardButton("📊 Статистика"),       KeyboardButton("ℹ️ Помощь")],
+        [KeyboardButton("❓ Получить вопрос"), KeyboardButton("🧪 Режим теста")],
+        [KeyboardButton("⭐️ Премиум"), KeyboardButton("📊 Статистика")],
+        [KeyboardButton("ℹ️ Помощь")],
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
 # ══════════════════════════════════════════════
 # ДАННЫЕ
@@ -113,33 +136,47 @@ def get_user(users, uid):
             "stats": {s: {"correct": 0, "total": 0} for s in SUBJECTS},
             "asked": {s: [] for s in SUBJECTS},
             "broadcast": True,
-            "plan": "free",
+            "plan": "free",            # free / standard / premium / premium_test
             "plan_until": None,
-            "questions_today": 0,
+            "questions_today": 0,      # счётчик уведомлений за день
             "last_question_date": "",
+            "test_today": 0,           # счётчик вопросов в режиме теста
+            "last_test_date": "",
+            "test_mode": False,        # сейчас активен режим теста
+            "test_subject": None,      # выбранный предмет для теста (или "all")
             "pending_payment": None,
         }
     return users[uid]
 
 def is_premium(user):
-    if user.get("plan") in ("standard", "family"):
+    if user.get("plan") in ("standard", "premium", "premium_test"):
         until = user.get("plan_until")
-        if until:
-            if datetime.now() < datetime.fromisoformat(until):
-                return True
+        if until and datetime.now() < datetime.fromisoformat(until):
+            return True
         user["plan"] = "free"
     return False
+
+def has_test_access(user):
+    return is_premium(user) and user.get("plan") == "premium_test"
 
 def reset_daily_if_needed(user):
     today = datetime.now(ALMATY_TZ).strftime("%Y-%m-%d")
     if user.get("last_question_date") != today:
         user["questions_today"] = 0
         user["last_question_date"] = today
+    if user.get("last_test_date") != today:
+        user["test_today"] = 0
+        user["last_test_date"] = today
 
 def can_get_question(user):
     reset_daily_if_needed(user)
-    limit = 3 if is_premium(user) else 1
+    plan = user.get("plan", "free") if is_premium(user) else "free"
+    limit = PLAN_NOTIFY_LIMIT.get(plan, 1)
     return user["questions_today"] < limit
+
+def can_get_test_question(user):
+    reset_daily_if_needed(user)
+    return user["test_today"] < TEST_DAILY_LIMIT
 
 def pick_question(user, subject):
     pool = QUESTIONS[subject]
@@ -153,12 +190,13 @@ def pick_question(user, subject):
     return idx, pool[idx]
 
 def get_stats_text(user):
-    plan = "⭐️ Премиум" if is_premium(user) else "🆓 Бесплатный"
+    plan_key = user.get("plan", "free") if is_premium(user) else "free"
+    plan_label = "🆓 Бесплатный" if plan_key == "free" else f"⭐️ {PLAN_NAMES[plan_key]}"
     until = ""
     if is_premium(user) and user.get("plan_until"):
         exp = datetime.fromisoformat(user["plan_until"])
         until = f" (до {exp.strftime('%d.%m.%Y')})"
-    lines = [f"📊 *Статистика по ЕНТ*\n🎫 Тариф: {plan}{until}\n"]
+    lines = [f"📊 *Статистика по ЕНТ*\n🎫 Тариф: {plan_label}{until}\n"]
     total_c, total_t = 0, 0
     for s in SUBJECTS:
         st = user["stats"].get(s, {"correct": 0, "total": 0})
@@ -173,24 +211,30 @@ def get_stats_text(user):
         lines.append("🔥 Отлично!" if overall >= 80 else "💪 Хорошо!" if overall >= 60 else "📚 Нужно больше практики!")
     else:
         lines.append("\nЕщё нет ответов. Нажми *❓ Получить вопрос* 🚀")
+    if has_test_access(user):
+        reset_daily_if_needed(user)
+        lines.append(f"\n🧪 Режим теста сегодня: {user['test_today']}/{TEST_DAILY_LIMIT}")
     return "\n".join(lines)
 
 # ══════════════════════════════════════════════
-# ОТПРАВКА ВОПРОСА
+# ОТПРАВКА ВОПРОСА — ОБЫЧНЫЙ РЕЖИМ (уведомление)
 # ══════════════════════════════════════════════
 async def send_question(bot, chat_id, subject=None):
     users = load_users()
     user = get_user(users, chat_id)
 
     if not can_get_question(user):
-        limit = 3 if is_premium(user) else 1
+        plan_key = user.get("plan", "free") if is_premium(user) else "free"
+        limit = PLAN_NOTIFY_LIMIT.get(plan_key, 1)
         keyboard = [[InlineKeyboardButton("⭐️ Получить премиум", callback_data="show_premium")]]
         await bot.send_message(
             chat_id=chat_id,
-            text=f"⏳ На сегодня вопросы закончились!\n\n"
-                 f"🆓 Бесплатный: *1 вопрос/день*, только История КЗ\n"
-                 f"⭐️ Премиум: *3 вопроса/день*, все предметы\n\n"
-                 f"Хочешь больше? Подключи премиум 👇",
+            text=f"⏳ На сегодня вопросы закончились! (лимит: {limit}/день)\n\n"
+                 f"🆓 Бесплатный: 1 вопрос/день, только История КЗ\n"
+                 f"⭐️ Стандарт (790 ₸): 3 вопроса/день, все предметы\n"
+                 f"⭐️ Премиум (990 ₸): 5 вопросов/день, все предметы\n"
+                 f"🧪 Премиум+Тест (1590 ₸): + режим теста до 50 вопросов/день\n\n"
+                 f"Хочешь больше? 👇",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -206,16 +250,65 @@ async def send_question(bot, chat_id, subject=None):
     reset_daily_if_needed(user)
     save_users(users)
 
-    limit = 3 if premium else 1
+    plan_key = user.get("plan", "free") if premium else "free"
+    limit = PLAN_NOTIFY_LIMIT.get(plan_key, 1)
     remaining = limit - user["questions_today"]
     text = f"📚 *{subject}*\n\n❓ {q['q']}\n\n" + "\n".join(q["opts"])
     text += f"\n\n_Осталось вопросов сегодня: {remaining}_"
 
     keyboard = [[
-        InlineKeyboardButton("A", callback_data=f"ans|{chat_id}|{subject}|{idx}|A"),
-        InlineKeyboardButton("B", callback_data=f"ans|{chat_id}|{subject}|{idx}|B"),
-        InlineKeyboardButton("C", callback_data=f"ans|{chat_id}|{subject}|{idx}|C"),
-        InlineKeyboardButton("D", callback_data=f"ans|{chat_id}|{subject}|{idx}|D"),
+        InlineKeyboardButton("A", callback_data=f"ans|{chat_id}|{subject}|{idx}|A|notify"),
+        InlineKeyboardButton("B", callback_data=f"ans|{chat_id}|{subject}|{idx}|B|notify"),
+        InlineKeyboardButton("C", callback_data=f"ans|{chat_id}|{subject}|{idx}|C|notify"),
+        InlineKeyboardButton("D", callback_data=f"ans|{chat_id}|{subject}|{idx}|D|notify"),
+    ]]
+    await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown",
+                           reply_markup=InlineKeyboardMarkup(keyboard))
+
+# ══════════════════════════════════════════════
+# РЕЖИМ ТЕСТА — отправка следующего вопроса теста
+# ══════════════════════════════════════════════
+async def send_test_question(bot, chat_id):
+    users = load_users()
+    user = get_user(users, chat_id)
+
+    if not has_test_access(user):
+        await bot.send_message(
+            chat_id=chat_id,
+            text="🧪 Режим теста доступен только в тарифе *Премиум + Тест* (1590 ₸/мес).",
+            parse_mode="Markdown"
+        )
+        return
+
+    if not can_get_test_question(user):
+        user["test_mode"] = False
+        save_users(users)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"🏁 Лимит режима теста на сегодня исчерпан ({TEST_DAILY_LIMIT}/{TEST_DAILY_LIMIT}).\n\nПриходи завтра — счётчик обнулится! 💪"
+        )
+        return
+
+    subject = user.get("test_subject")
+    if subject == "all" or subject not in SUBJECTS:
+        chosen_subject = random.choice(SUBJECTS)
+    else:
+        chosen_subject = subject
+
+    idx, q = pick_question(user, chosen_subject)
+    user["test_today"] = user.get("test_today", 0) + 1
+    reset_daily_if_needed(user)
+    save_users(users)
+
+    remaining = TEST_DAILY_LIMIT - user["test_today"]
+    text = f"🧪 *Тест · {chosen_subject}*\n\n❓ {q['q']}\n\n" + "\n".join(q["opts"])
+    text += f"\n\n_Вопрос {user['test_today']}/{TEST_DAILY_LIMIT} сегодня_"
+
+    keyboard = [[
+        InlineKeyboardButton("A", callback_data=f"ans|{chat_id}|{chosen_subject}|{idx}|A|test"),
+        InlineKeyboardButton("B", callback_data=f"ans|{chat_id}|{chosen_subject}|{idx}|B|test"),
+        InlineKeyboardButton("C", callback_data=f"ans|{chat_id}|{chosen_subject}|{idx}|C|test"),
+        InlineKeyboardButton("D", callback_data=f"ans|{chat_id}|{chosen_subject}|{idx}|D|test"),
     ]]
     await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown",
                            reply_markup=InlineKeyboardMarkup(keyboard))
@@ -231,7 +324,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user["name"] = name
     save_users(users)
 
-    plan_text = "⭐️ У тебя активен *Премиум*!" if is_premium(user) else "🆓 Сейчас у тебя *бесплатный план* (1 вопрос/день, История КЗ)"
+    if is_premium(user):
+        plan_text = f"⭐️ У тебя активен *{PLAN_NAMES[user['plan']]}*!"
+    else:
+        plan_text = "🆓 Сейчас у тебя *бесплатный план* (1 вопрос/день, История КЗ)"
 
     await update.message.reply_text(
         f"👋 Привет, *{name}*!\n\n"
@@ -244,19 +340,52 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_question(context.bot, uid)
 
 # ══════════════════════════════════════════════
+# ВЫБОР ПРЕДМЕТА ДЛЯ РЕЖИМА ТЕСТА
+# ══════════════════════════════════════════════
+async def show_test_subject_menu(reply_func, user):
+    if not has_test_access(user):
+        keyboard = [[InlineKeyboardButton("🧪 Купить Премиум + Тест — 1590 ₸", callback_data="buy_premium_test")]]
+        await reply_func(
+            "🧪 *Режим теста* — это безлимитная (до 50/день) тренировка с выбором предмета, как настоящий пробный ЕНТ.\n\n"
+            "Доступен в тарифе *Премиум + Тест* за 1590 ₸/мес.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    reset_daily_if_needed(user)
+    remaining = TEST_DAILY_LIMIT - user["test_today"]
+    if remaining <= 0:
+        await reply_func(f"🏁 На сегодня лимит теста исчерпан ({TEST_DAILY_LIMIT}/{TEST_DAILY_LIMIT}). Приходи завтра!")
+        return
+
+    keyboard = [[InlineKeyboardButton(s, callback_data=f"test_subject|{s}")] for s in SUBJECTS]
+    keyboard.append([InlineKeyboardButton("🎲 Все предметы вперемешку", callback_data="test_subject|all")])
+
+    await reply_func(
+        f"🧪 *Режим теста*\n\nОсталось вопросов сегодня: *{remaining}/{TEST_DAILY_LIMIT}*\n\nВыбери предмет 👇",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ══════════════════════════════════════════════
 # МЕНЮ — ОБРАБОТЧИК КНОПОК
 # ══════════════════════════════════════════════
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = update.effective_user.id
 
-    # Обработка если пользователь написал start текстом
     if text.lower() in ("start", "старт", "/start", "начать", "начало"):
         await start(update, context)
         return
 
     if text == "❓ Получить вопрос":
         await send_question(context.bot, uid)
+
+    elif text == "🧪 Режим теста":
+        users = load_users()
+        user = get_user(users, uid)
+        await show_test_subject_menu(update.message.reply_text, user)
 
     elif text == "⭐️ Премиум":
         users = load_users()
@@ -271,45 +400,88 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "ℹ️ Помощь" or text.lower() in ("помощь", "help", "?"):
         await update.message.reply_text(
             "📌 *Как пользоваться ботом:*\n\n"
-            "❓ *Получить вопрос* — получить вопрос ЕНТ прямо сейчас\n"
+            "❓ *Получить вопрос* — вопрос ЕНТ прямо сейчас\n"
+            "🧪 *Режим теста* — тренировка до 50 вопросов в день (тариф Премиум+Тест)\n"
             "⭐️ *Премиум* — тарифы и оплата\n"
-            "📊 *Статистика* — твой прогресс по предметам\n\n"
-            "📅 *Автоматические вопросы:*\n"
-            "☀️ 08:00 · 🌤 13:00 · 🌙 19:00\n\n"
+            "📊 *Статистика* — твой прогресс\n\n"
+            "📅 *Автоматические уведомления:*\n"
+            "☀️ 08:00 · 🌤 13:00 · 🌙 19:00 · 🌆 16:00 · 🌃 21:00\n\n"
             "🆓 Бесплатно: 1 вопрос/день, История КЗ\n"
-            "⭐️ Премиум: 3 вопроса/день, все 5 предметов\n\n"
-            "По вопросам: напиши администратору",
+            "⭐️ Стандарт (790 ₸): 3 вопроса/день, все предметы\n"
+            "⭐️ Премиум (990 ₸): 5 вопросов/день, все предметы\n"
+            "🧪 Премиум+Тест (1590 ₸): + режим теста 50 вопросов/день",
             parse_mode="Markdown"
         )
     else:
-        # Любое другое сообщение — показываем меню
-        await update.message.reply_text(
-            "Используй кнопки меню 👇",
-            reply_markup=main_menu()
-        )
+        await update.message.reply_text("Используй кнопки меню 👇", reply_markup=main_menu())
 
 # ══════════════════════════════════════════════
 # ПРЕМИУМ МЕНЮ
 # ══════════════════════════════════════════════
-async def show_premium_menu(reply_func):
+async def show_premium_menu(reply_func, user=None):
+    if user and is_premium(user):
+        plan = user.get("plan", "free")
+        until = datetime.fromisoformat(user["plan_until"]).strftime("%d.%m.%Y")
+
+        if plan == "premium_test":
+            await reply_func(
+                f"🧪 У тебя уже максимальный тариф *Премиум + Тест*!\n\n"
+                f"📅 Действует до: *{until}*\n\n"
+                f"5 уведомлений/день + режим теста до 50 вопросов/день 🎉",
+                parse_mode="Markdown"
+            )
+            return
+
+        if plan == "premium":
+            text = (
+                f"⭐️ У тебя активен *Премиум* до {until}\n\n"
+                f"Хочешь добавить безлимитный режим теста?\n\n"
+                f"🧪 *Премиум + Тест — 1590 ₸/мес:*\n"
+                f"• Всё из Премиум (5 уведомлений/день)\n"
+                f"• + Режим теста: до 50 вопросов/день\n"
+                f"• Выбор предмета или все вперемешку\n\n"
+                f"Оформить? 👇"
+            )
+            keyboard = [[InlineKeyboardButton("🧪 Перейти на Премиум+Тест — 1590 ₸", callback_data="buy_premium_test")]]
+            await reply_func(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        if plan == "standard":
+            text = (
+                f"⭐️ У тебя активен *Стандарт* до {until}\n\n"
+                f"Хочешь больше вопросов в день?\n\n"
+                f"⭐️ *Премиум — 990 ₸/мес:* 5 вопросов/день, все предметы\n"
+                f"🧪 *Премиум + Тест — 1590 ₸/мес:* + режим теста 50/день\n\n"
+                f"Выбери план 👇"
+            )
+            keyboard = [
+                [InlineKeyboardButton("⭐️ Перейти на Премиум — 990 ₸", callback_data="buy_premium")],
+                [InlineKeyboardButton("🧪 Перейти на Премиум+Тест — 1590 ₸", callback_data="buy_premium_test")],
+            ]
+            await reply_func(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
     text = (
-        "⭐️ *Премиум подписка ЕНТ Репетитор*\n\n"
+        "⭐️ *Тарифы ЕНТ Репетитор*\n\n"
         "🆓 *Бесплатно:*\n"
         "• 1 вопрос в день\n"
         "• Только История Казахстана\n\n"
-        "⭐️ *Стандарт — 2 990 ₸/мес:*\n"
-        "• 3 вопроса в день\n"
-        "• Все 5 предметов\n"
-        "• Полная статистика\n"
-        "• Умное повторение слабых мест\n\n"
-        "👨‍👩‍👧 *Семейный — 4 990 ₸/мес:*\n"
-        "• До 3 детей\n"
-        "• Всё из Стандарта\n\n"
+        "⭐️ *Стандарт — 790 ₸/мес:*\n"
+        "• 3 вопроса (уведомления) в день\n"
+        "• Все 5 предметов\n\n"
+        "⭐️ *Премиум — 990 ₸/мес:*\n"
+        "• 5 вопросов (уведомлений) в день\n"
+        "• Все 5 предметов\n\n"
+        "🧪 *Премиум + Тест — 1590 ₸/мес:*\n"
+        "• 5 уведомлений в день\n"
+        "• + Режим теста: сам заходишь и решаешь до 50 вопросов в день\n"
+        "• Выбор предмета или вперемешку\n\n"
         "Выбери план 👇"
     )
     keyboard = [
-        [InlineKeyboardButton("⭐️ Стандарт — 2 990 ₸", callback_data="buy_standard")],
-        [InlineKeyboardButton("👨‍👩‍👧 Семейный — 4 990 ₸", callback_data="buy_family")],
+        [InlineKeyboardButton("⭐️ Стандарт — 790 ₸", callback_data="buy_standard")],
+        [InlineKeyboardButton("⭐️ Премиум — 990 ₸", callback_data="buy_premium")],
+        [InlineKeyboardButton("🧪 Премиум + Тест — 1590 ₸", callback_data="buy_premium_test")],
     ]
     await reply_func(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -327,10 +499,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_premium_menu(query.message.reply_text, user)
         return
 
-    if data in ("buy_standard", "buy_family"):
-        plan = "standard" if data == "buy_standard" else "family"
-        price = PRICE_STANDARD if plan == "standard" else PRICE_FAMILY
-        plan_name = "Стандарт" if plan == "standard" else "Семейный"
+    if data.startswith("test_subject|"):
+        _, subject = data.split("|", 1)
+        users = load_users()
+        user = get_user(users, query.from_user.id)
+        if not has_test_access(user):
+            await query.message.reply_text("🧪 Режим теста доступен только в тарифе Премиум + Тест.")
+            return
+        user["test_subject"] = subject
+        user["test_mode"] = True
+        save_users(users)
+        label = "Все предметы" if subject == "all" else subject
+        await query.message.reply_text(f"🧪 Начинаем тест по теме: *{label}*", parse_mode="Markdown")
+        await send_test_question(context.bot, query.from_user.id)
+        return
+
+    if data in ("buy_standard", "buy_premium", "buy_premium_test"):
+        plan = data.replace("buy_", "")
+        price = PLAN_PRICES[plan]
+        plan_name = PLAN_NAMES[plan]
 
         users = load_users()
         user = get_user(users, query.from_user.id)
@@ -355,7 +542,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uid = query.from_user.id
         name = query.from_user.first_name or "Пользователь"
         username = f"@{query.from_user.username}" if query.from_user.username else "без юзернейма"
-        plan_name = "Стандарт" if plan == "standard" else "Семейный"
+        plan_name = PLAN_NAMES.get(plan, plan)
 
         admin_text = (
             f"💰 *Новая оплата!*\n\n"
@@ -381,9 +568,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("ans|"):
         parts = data.split("|")
-        if len(parts) < 5:
+        if len(parts) < 6:
             return
-        _, chat_id, subject, idx, chosen = parts
+        _, chat_id, subject, idx, chosen, mode = parts
         idx = int(idx); chat_id = int(chat_id)
         q = QUESTIONS[subject][idx]
         is_correct = chosen == q["ans"]
@@ -399,6 +586,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(reply_markup=None)
         await context.bot.send_message(chat_id=chat_id, text=result, parse_mode="Markdown")
 
+        # Если это режим теста — сразу шлём следующий вопрос
+        if mode == "test":
+            users = load_users()
+            user = get_user(users, chat_id)
+            if has_test_access(user) and can_get_test_question(user):
+                await send_test_question(context.bot, chat_id)
+            elif has_test_access(user):
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🏁 Лимит теста на сегодня исчерпан ({TEST_DAILY_LIMIT}/{TEST_DAILY_LIMIT}). Отличная тренировка! Заходи завтра 💪"
+                )
+
 # ══════════════════════════════════════════════
 # АДМИН КОМАНДЫ
 # ══════════════════════════════════════════════
@@ -408,11 +607,11 @@ async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Использование: /activate [user_id] [standard|family]")
+        await update.message.reply_text("Использование: /activate [user_id] [standard|premium|premium_test]")
         return
     target_uid, plan = args[0], args[1]
-    if plan not in ("standard", "family"):
-        await update.message.reply_text("План: standard или family")
+    if plan not in ("standard", "premium", "premium_test"):
+        await update.message.reply_text("План: standard, premium или premium_test")
         return
     users = load_users()
     user = get_user(users, target_uid)
@@ -420,13 +619,15 @@ async def activate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user["plan_until"] = (datetime.now() + timedelta(days=30)).isoformat()
     user["pending_payment"] = None
     save_users(users)
-    plan_name = "Стандарт" if plan == "standard" else "Семейный"
+    plan_name = PLAN_NAMES[plan]
     exp_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
+
+    extra = "\n\n🧪 Тебе доступен Режим теста — до 50 вопросов в день!" if plan == "premium_test" else ""
     notice = (
         "🎉 *Подписка активирована!*\n\n"
         f"✅ Тариф: *{plan_name}*\n"
-        f"📅 Действует до: *{exp_date}*\n\n"
-        "Теперь доступны все 5 предметов и 3 вопроса в день!\n\n"
+        f"📅 Действует до: *{exp_date}*"
+        f"{extra}\n\n"
         "Удачи на ЕНТ! 🚀"
     )
     try:
@@ -449,13 +650,14 @@ async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for uid, u in users.items():
         if is_premium(u):
             until = datetime.fromisoformat(u["plan_until"]).strftime("%d.%m")
-            lines.append(f"⭐️ {u.get('name','?')} `{uid}` — до {until}")
+            plan_label = PLAN_NAMES.get(u.get("plan"), u.get("plan"))
+            lines.append(f"⭐️ {u.get('name','?')} `{uid}` — {plan_label} до {until}")
         else:
             lines.append(f"🆓 {u.get('name','?')} `{uid}`")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 # ══════════════════════════════════════════════
-# РАССЫЛКА
+# РАССЫЛКА (уведомления)
 # ══════════════════════════════════════════════
 async def broadcast(context: ContextTypes.DEFAULT_TYPE):
     users = load_users()
@@ -479,9 +681,12 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
     app.add_handler(CallbackQueryHandler(button_callback))
 
+    # Уведомления — для Премиум (5 раз), Стандарт (первые 3 из этих же слотов), Free (первый слот)
     app.job_queue.run_daily(broadcast, time=dtime(8, 0, tzinfo=ALMATY_TZ))
-    app.job_queue.run_daily(broadcast, time=dtime(13, 0, tzinfo=ALMATY_TZ))
-    app.job_queue.run_daily(broadcast, time=dtime(19, 0, tzinfo=ALMATY_TZ))
+    app.job_queue.run_daily(broadcast, time=dtime(12, 0, tzinfo=ALMATY_TZ))
+    app.job_queue.run_daily(broadcast, time=dtime(15, 0, tzinfo=ALMATY_TZ))
+    app.job_queue.run_daily(broadcast, time=dtime(18, 0, tzinfo=ALMATY_TZ))
+    app.job_queue.run_daily(broadcast, time=dtime(21, 0, tzinfo=ALMATY_TZ))
 
     logger.info("Бот запущен!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
